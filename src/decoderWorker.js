@@ -14,6 +14,12 @@ global['onmessage'] = function( e ){
         }
         break;
 
+      case 'waveform':
+        if(decoder) {
+          decoder.generateWaveform(e['data']['pages']);
+        }
+        break;
+
       case 'done':
         if (decoder) {
           decoder.sendLastBuffer();
@@ -51,15 +57,188 @@ var OggOpusDecoder = function( config, Module ){
   this._speex_resampler_init = Module._speex_resampler_init;
   this._speex_resampler_destroy = Module._speex_resampler_destroy;
   this._opus_decode_float = Module._opus_decode_float;
+  this._opus_decode = Module._opus_decode;
   this._free = Module._free;
   this._malloc = Module._malloc;
   this.HEAPU8 = Module.HEAPU8;
+  this.HEAP16 = Module.HEAP16;
   this.HEAP32 = Module.HEAP32;
   this.HEAPF32 = Module.HEAPF32;
 
   this.outputBuffers = [];
 };
 
+OggOpusDecoder.prototype.generateWaveform = function(typedArray) {
+  var dataView = new DataView(typedArray.buffer);
+
+  var resultSamples = 100;
+  var samples = new Uint16Array(100);
+  var sampleIndex = 0;
+  var peakSample = 0;
+  var index = 0;
+
+  var allSamples = [];
+  var totalSamples = 0;
+
+  this.getPageBoundaries(dataView).map(function(pageStart) {
+    var headerType = dataView.getUint8(pageStart + 5, true );
+    var pageIndex = dataView.getUint32(pageStart + 18, true );
+
+    // Beginning of stream
+    if(headerType & 2) {
+      this.numberOfChannels = dataView.getUint8(pageStart + 37, true);
+      this.init();
+    }
+
+    // Decode page
+    if(pageIndex > 1) {
+      var segmentTableLength = dataView.getUint8(pageStart + 26, true);
+      var segmentTableIndex = pageStart + 27 + segmentTableLength;
+
+      for(var i = 0; i < segmentTableLength; i++) {
+        var packetLength = dataView.getUint8(pageStart + 27 + i, true);
+        this.decoderBuffer.set(typedArray.subarray(segmentTableIndex, segmentTableIndex += packetLength), this.decoderBufferIndex);
+        this.decoderBufferIndex += packetLength;
+
+        if(packetLength < 255) {
+          var outputSampleLength = this._opus_decode(this.decoder, this.decoderBufferPointer, this.decoderBufferIndex, this.decoderOutput16Pointer, this.decoderOutputMaxLength, 0);
+          this.decoderBufferIndex = 0;
+
+          if(outputSampleLength < 1) {
+            continue;
+          }
+
+          totalSamples += this.decoderOutputMaxLength;
+
+          //continue;
+          var sampleBuffer = this.HEAP16.subarray(this.decoderOutput16Pointer >> 1, (this.decoderOutput16Pointer >> 1) + this.decoderOutputMaxLength);
+          //console.log('sampleBuffer:', sampleBuffer);
+
+          allSamples.push(sampleBuffer.slice());
+          
+          //console.warn('decoded samples:', outputSampleLength, this.decoderOutput16Pointer, this.decoderOutputMaxLength, sampleBuffer);
+          //for(var k = 0, int16Length = outputSampleLength * 2; k < int16Length; k++) {
+        }
+      }
+
+      // End of stream
+      if(headerType & 4) {
+        //
+      }
+    }
+  }, this);
+
+  var sampleRate = Math.max(1, Math.floor(totalSamples / resultSamples));
+
+  //console.log('set sampleRate', totalSamples, sampleRate);
+
+  var skipped = 0;
+  for(var i = 0; i < allSamples.length; i++) {
+  //for(var i = allSamples.length - 1; i >= 0; i--) {
+    var sampleBuffer = allSamples[i];
+    /* for(var k = 0, length = sampleBuffer.length; k < length; k++) {
+    //for(var k = sampleBuffer.length - 1; k >= 0; k--) {
+      var sample = Math.abs(sampleBuffer[k]);
+      //var sample = sampleBuffer[k];
+      if(sample > peakSample) {
+        peakSample = sample;
+      }
+      if((sampleIndex++ % sampleRate) == 0) {
+        //console.log('Will write peakSample:', peakSample, index);
+        if(index < resultSamples) {
+          samples[index++] = peakSample;
+          console.log('Writing peakSample:', index - 1, peakSample);
+        } else ++skipped;
+        peakSample = 0;
+      }
+    } */
+    for(var k = 0, length = sampleBuffer.length; k < length; k++) {
+    //for(var k = sampleBuffer.length - 1; k >= 0; k--) {
+      var sample = Math.abs(sampleBuffer[k]);
+      //var sample = sampleBuffer[k];
+      if(sample > peakSample) {
+        peakSample = sample;
+      }
+      if((sampleIndex++ % sampleRate) == 0) {
+        //console.log('Will write peakSample:', peakSample, index);
+        if(index < resultSamples) {
+          samples[index++] = peakSample;
+          //console.log('Writing peakSample:', index - 1, peakSample);
+        } else {
+          ++skipped;
+          //console.log('Skipped sample:', peakSample);
+        }
+
+        peakSample = 0;
+      }
+    }
+  }
+
+  //console.log('skipped', skipped);
+
+  var sumSamples = 0;
+  for(var i = 0; i < resultSamples; i++) {
+    sumSamples += samples[i];
+  }
+  var peak = Math.floor(sumSamples * 1.8 / resultSamples);
+  //console.log('maybe peak', sumSamples, resultSamples);
+  var MAGIC_NUMBER = 2500;//2500 / 32767;
+  if(peak < MAGIC_NUMBER) { // 2500 / 32767
+    peak = MAGIC_NUMBER;
+  }
+
+  /* var result = new Uint8Array(resultSamples);
+  for(var i = 0, l = samples.length; i != l; ++i) {
+    result[i] = Math.min(31, Math.min(samples[i], peak) * 31 / peak);
+  }
+
+  console.log('omg', result); */
+
+  for(var i = 0; i < resultSamples; i++) {
+    if(samples[i] > peak) {
+      samples[i] = peak;
+    }
+  }
+  
+  var bitstreamLength = (resultSamples * 5) / 8 + 1;
+  var result = new Uint8Array(Math.floor(bitstreamLength));
+
+  for(var i = 0; i < resultSamples; i++) {
+    var value = Math.min(31, Math.floor(Math.floor(samples[i] * 31) / peak));
+
+    //console.log('value before:', value, samples[i]);
+    setBits(result, i * 5, value & 31);
+  }
+
+  //var uint8 = new Uint8Array(dataView.buffer);
+  //result.set(dataView.buffer, 0);
+
+  //console.log('SAMPLES:', samples, peak);
+  //console.log('RESULT:', result);
+  global['postMessage']({type: 'waveform', result: result});
+}
+
+function setBits(bytes, bitOffset, value) {
+  var o = Math.floor(bitOffset / 8);
+
+  //console.log('setBits before', o, bitOffset);
+
+  bitOffset %= 8;
+
+  var prev = bytes[o];
+  value = prev | (value << bitOffset);
+
+  var uint8 = new Uint8Array(new Int32Array([value]).buffer);
+  for(var i = 0; i < 4; ++i) {
+    bytes[o + i] = uint8[i];
+  }
+  
+  /* var prev = bytes.getInt8(o);
+  value = prev | (value << bitOffset);
+  bytes.setInt32(o, value); */
+
+  //console.log('setBits', o, value, bytes, (value << bitOffset));
+}
 
 OggOpusDecoder.prototype.decode = function( typedArray ) {
   var dataView = new DataView( typedArray.buffer );
@@ -105,9 +284,9 @@ OggOpusDecoder.prototype.decode = function( typedArray ) {
 OggOpusDecoder.prototype.getPageBoundaries = function( dataView ){
   var pageBoundaries = [];
 
-  for ( var i = 0; i < dataView.byteLength - 32; i++ ) {
-    if ( dataView.getUint32( i, true ) == 1399285583 ) {
-      pageBoundaries.push( i );
+  for(var i = 0; i < dataView.byteLength - 32; i++) {
+    if(dataView.getUint32(i, true) == 1399285583) {
+      pageBoundaries.push(i);
     }
   }
 
@@ -127,6 +306,9 @@ OggOpusDecoder.prototype.initCodec = function() {
     this._free( this.decoderBufferPointer );
     this._free( this.decoderOutputLengthPointer );
     this._free( this.decoderOutputPointer );
+
+    this._free(this.decoderOutput16LengthPointer);
+    this._free(this.decoderOutput16Pointer);
   }
 
   var errReference = this._malloc( 4 );
@@ -140,7 +322,10 @@ OggOpusDecoder.prototype.initCodec = function() {
 
   this.decoderOutputLengthPointer = this._malloc( 4 );
   this.decoderOutputMaxLength = this.config.decoderSampleRate * this.numberOfChannels * 120 / 1000; // Max 120ms frame size
-  this.decoderOutputPointer = this._malloc( this.decoderOutputMaxLength * 4 ); // 4 bytes per sample
+  this.decoderOutputPointer = this._malloc(this.decoderOutputMaxLength * 4); // 4 bytes per sample
+
+  this.decoderOutput16LengthPointer = this._malloc(2);
+  this.decoderOutput16Pointer = this._malloc(this.decoderOutputMaxLength * 2); // 2 bytes per sample
 };
 
 OggOpusDecoder.prototype.initResampler = function() {

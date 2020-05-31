@@ -13,7 +13,7 @@ LIBOPUS_DECODER=$(OUTPUT_DIR_UNMINIFIED)/decoderWorker.js
 LIBOPUS_DIR=./opus
 LIBOPUS_OBJ=$(LIBOPUS_DIR)/.libs/libopus.a
 LIBOPUS_ENCODER_EXPORTS:='_opus_encoder_create','_opus_encode_float','_opus_encoder_ctl','_opus_encoder_destroy'
-LIBOPUS_DECODER_EXPORTS:='_opus_decoder_create','_opus_decode_float','_opus_decoder_destroy'
+LIBOPUS_DECODER_EXPORTS:='_opus_decoder_create','_opus_decode_float','_opus_decoder_destroy','_opus_decode'
 
 LIBSPEEXDSP_DIR=./speexdsp
 LIBSPEEXDSP_OBJ=$(LIBSPEEXDSP_DIR)/libspeexdsp/.libs/libspeexdsp.a

@@ -21,7 +21,7 @@
 
   <div>
     <label>Decoder output sample rate</label>
-    <input id="sampleRate" type="number" value="8000" />
+    <input id="sampleRate" type="number" value="48000" />
   </div>
 
   <div>
@@ -57,14 +57,13 @@
       });
 
       decoderWorker.onmessage = function(e){
-
+        var data = e.data;
         // null means decoder is finished
-        if (e.data === null) {
+        if(data === null) {
           wavWorker.postMessage({ command: 'done' });
-        }
-
-        // e.data contains decoded buffers as float32 values
-        else {
+        } else if(data.type == 'waveform') {
+          console.log('waveform:', data.result);
+        } else { // e.data contains decoded buffers as float32 values
           wavWorker.postMessage({
             command: 'encode',
             buffers: e.data
@@ -75,11 +74,11 @@
       };
 
       wavWorker.onmessage = function(e){
-        
+        var data = e.data;
         // null signifies that no more data is expected and worker is closed. 
-        if (e.data !== null) {
+        if (data && data.page) {
           var fileName = new Date().toISOString() + ".wav";
-          var dataBlob = new Blob( [ e.data ], { type: "audio/wav" } );
+          var dataBlob = new Blob( [ data.page ], { type: "audio/wav" } );
           var url = URL.createObjectURL( dataBlob );
 
           var audio = document.createElement('audio');
@@ -100,7 +99,8 @@
       };
 
       decoderWorker.postMessage({
-        command: 'decode',
+        //command: 'decode',
+        command: 'waveform',
         pages: typedArray
       }, [typedArray.buffer] );
     };
