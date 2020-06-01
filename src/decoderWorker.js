@@ -164,9 +164,21 @@ function setBits(bytes, bitOffset, value) {
 
 OggOpusDecoder.prototype.decode = function(typedArray, withWaveform) {
   var dataView = new DataView(typedArray.buffer);
-  this.getPageBoundaries(dataView).map(function(pageStart) {
+  var pages = this.getPageBoundaries(dataView);
+
+  /* нужно убрать это отсюда в случае декодирования чанками, 
+  в таком случае нужно разобраться с аудиосообщениями, 
+  записанными на маке или айфоне, 
+  т.к. в их последнем заголовке нет флага 0x04: unset = not last page of logical bitstream
+  https://xiph.org/vorbis/doc/framing.html
+  */
+  var maxPageIndex = pages.length - 1; 
+
+  pages.map(function(pageStart, idx) {
     var headerType = dataView.getUint8(pageStart + 5, true);
     var pageIndex = dataView.getUint32(pageStart + 18, true);
+
+    //console.log('got page:', pageStart, headerType, pageIndex);
 
     // Beginning of stream
     if(headerType & 2) {
@@ -184,9 +196,12 @@ OggOpusDecoder.prototype.decode = function(typedArray, withWaveform) {
         this.decoderBuffer.set(typedArray.subarray(segmentTableIndex, segmentTableIndex += packetLength), this.decoderBufferIndex);
         this.decoderBufferIndex += packetLength;
 
+        //console.log('packetLength:', packetLength);
+
         if(packetLength < 255) {
           var outputSampleLength = this._opus_decode_float(this.decoder, this.decoderBufferPointer, this.decoderBufferIndex, this.decoderOutputPointer, this.decoderOutputMaxLength, 0);
-          
+          //console.log('outputSampleLength', outputSampleLength);
+
           if(withWaveform && outputSampleLength > 0) {
             var sampleBuffer = this.HEAPF32.subarray(this.decoderOutputPointer >> 2, (this.decoderOutputPointer >> 2) + this.decoderOutputMaxLength);
             //console.log('sampleBuffer:', sampleBuffer);
@@ -203,8 +218,11 @@ OggOpusDecoder.prototype.decode = function(typedArray, withWaveform) {
         }
       }
 
+      //console.log('decoded page');
+
       // End of stream
-      if(headerType & 4) {
+      if(headerType & 4 || (maxPageIndex == idx)) {
+        //console.log('end of stream', this.outputBuffers);
         this.sendLastBuffer();
       }
     }
@@ -219,6 +237,8 @@ OggOpusDecoder.prototype.getPageBoundaries = function(dataView) {
       pageBoundaries.push(i);
     }
   }
+
+  //console.log('diff:', i, pageBoundaries, i - pageBoundaries[pageBoundaries.length - 1]);
 
   return pageBoundaries;
 };
@@ -289,6 +309,8 @@ OggOpusDecoder.prototype.sendLastBuffer = function() {
 OggOpusDecoder.prototype.sendToOutputBuffers = function(mergedBuffers) {
   var dataIndex = 0;
   var mergedBufferLength = mergedBuffers.length / this.numberOfChannels;
+
+  //console.log('sendToOutputBuffers', mergedBufferLength, mergedBuffers);
 
   while(dataIndex < mergedBufferLength) {
     var amountToCopy = Math.min(mergedBufferLength - dataIndex, this.config.bufferLength - this.outputBufferIndex);
