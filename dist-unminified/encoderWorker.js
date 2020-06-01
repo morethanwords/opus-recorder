@@ -2103,10 +2103,6 @@ var _speex_resampler_process_interleaved_float = Module["_speex_resampler_proces
   return Module["asm"]["_speex_resampler_process_interleaved_float"].apply(null, arguments)
 };
 
-var _speex_resampler_process_interleaved_int = Module["_speex_resampler_process_interleaved_int"] = function() {
-  return Module["asm"]["_speex_resampler_process_interleaved_int"].apply(null, arguments)
-};
-
 var establishStackSpace = Module["establishStackSpace"] = function() {
   return Module["asm"]["establishStackSpace"].apply(null, arguments)
 };
