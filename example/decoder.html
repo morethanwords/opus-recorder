@@ -56,18 +56,36 @@
         wavSampleRate: desiredSampleRate
       });
 
+      
+      var use16 = true;
+      var text = use16 ? 'INT16' : 'FLOAT32';
+      var int16Array = [];
+      var float32Array = [];
       decoderWorker.onmessage = function(e){
         var data = e.data;
         // null means decoder is finished
-        if(data === null) {
+        if(!data || data.type == 'done') {
+          console.log('waveform:', data && data.waveform);
           wavWorker.postMessage({ command: 'done' });
-        } else if(data.type == 'waveform') {
-          console.log('waveform:', data.result);
         } else { // e.data contains decoded buffers as float32 values
           wavWorker.postMessage({
             command: 'encode',
             buffers: e.data
           }, e.data.map(function(typedArray){
+            var int16 = typedArray instanceof Int16Array;
+            for(var i = 0; i < typedArray.length; ++i) {
+              var sample = typedArray[i];
+              if(!int16) {
+                sample = Math.floor(sample * 32767.5 - 0.5);
+                float32Array.push(sample);
+              } else {
+                sample = Math.floor(sample - 0.5);
+                int16Array.push(sample);
+              }
+
+              text += sample + ',';
+            }
+
             return typedArray.buffer;
           }));
         }
@@ -85,24 +103,70 @@
           audio.controls = true;
           audio.src = URL.createObjectURL( dataBlob );
 
+          var blob = new Blob([text], {type: "text/plain;charset=utf-8"});
+          url = URL.createObjectURL(blob);
+          fileName = new Date().toISOString() + ".txt";
+
           var link = document.createElement('a');
           link.href = url;
           link.download = fileName;
           link.innerHTML = link.download;
+          
+          console.log(int16Array, float32Array);
 
           var li = document.createElement('li');
           li.appendChild(link);
           li.appendChild(audio);
 
           recordingslist.appendChild(li);
+
+          if(!float32Array.length) {
+            decoderWorker.postMessage({ 
+              command:'init',
+              decoderSampleRate: desiredSampleRate,
+              outputBufferSampleRate: desiredSampleRate
+            });
+
+            wavWorker.postMessage({ 
+              command:'init',
+              wavBitDepth: parseInt(bitDepth.value,10),
+              wavSampleRate: desiredSampleRate
+            });
+
+            setTimeout(() => {
+              console.log('pass typedArray', typedArray);
+              decoderWorker.postMessage({
+                //command: 'decode',
+                //command: 'waveform',
+                //command: 'decode16',
+                command: 'decode',
+                pages: typedArray,
+                waveform: true
+              }, [typedArray.buffer] );
+            }, 500);
+          } else {
+            var diff = [];
+            for(var i = 0; i < int16Array.length; ++i) {
+                var first = int16Array[i];
+                var second = float32Array[i];
+                if(Math.abs(second - first) == 1) continue;
+                else if(first != second) {
+                    diff.push({index: i, values: [first, second]});
+              }
+            }
+            console.log(diff);
+          }
         }
       };
 
       decoderWorker.postMessage({
-        //command: 'decode',
-        command: 'waveform',
-        pages: typedArray
-      }, [typedArray.buffer] );
+        command: 'decode',
+        //command: 'waveform',
+        //command: 'decode16',
+        //command: use16 ? 'decode16' : 'decode',
+        pages: typedArray,
+        waveform: true
+      }/* , [typedArray.buffer] */ );
     };
 
     fileInput.onchange = function(e){

@@ -17,7 +17,7 @@ LIBOPUS_DECODER_EXPORTS:='_opus_decoder_create','_opus_decode_float','_opus_deco
 
 LIBSPEEXDSP_DIR=./speexdsp
 LIBSPEEXDSP_OBJ=$(LIBSPEEXDSP_DIR)/libspeexdsp/.libs/libspeexdsp.a
-LIBSPEEXDSP_EXPORTS:='_speex_resampler_init','_speex_resampler_process_interleaved_float','_speex_resampler_destroy'
+LIBSPEEXDSP_EXPORTS:='_speex_resampler_init','_speex_resampler_process_interleaved_float','_speex_resampler_destroy','_speex_resampler_process_interleaved_int'
 
 RECORDER_MIN=$(OUTPUT_DIR)/recorder.min.js
 RECORDER=$(OUTPUT_DIR_UNMINIFIED)/recorder.js
