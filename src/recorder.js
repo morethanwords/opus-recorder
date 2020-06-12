@@ -215,6 +215,26 @@ Recorder.prototype.start = function( sourceNode ){
 
     this.encodedSamplePosition = 0;
 
+    return this.initWorker().then(() => {
+      return this.initSourceNode(sourceNode);
+    }).then(sourceNode => {
+      this.sourceNode = sourceNode;
+      this.state = "recording";
+      this.onstart();
+      this.encoder.postMessage({ command: 'getHeaderPages' });
+      this.sourceNode.connect( this.monitorGainNode );
+      this.sourceNode.connect( this.recordingGainNode );
+    });
+  }
+};
+
+/* Recorder.prototype.start = function( sourceNode ){
+  if ( this.state === "inactive" ) {
+    this.initAudioContext( sourceNode );
+    this.initAudioGraph();
+
+    this.encodedSamplePosition = 0;
+
     return Promise.all([this.initSourceNode(sourceNode), this.initWorker()]).then((results) => {
       this.sourceNode = results[0];
       this.state = "recording";
@@ -224,7 +244,7 @@ Recorder.prototype.start = function( sourceNode ){
       this.sourceNode.connect( this.recordingGainNode );
     });
   }
-};
+}; */
 
 Recorder.prototype.stop = function(){
   if ( this.state !== "inactive" ) {
